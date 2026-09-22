@@ -35,8 +35,8 @@ app.use('/api/sync', syncRoutes);
 app.get('/api/thumb', async (req, res) => {
   try {
     const u = String(req.query.url || '');
-    if (!/^https:\/\/(sun|iv|pp|ps|vk)\S+\.(userapi\.com|okcdn\.ru|vk\.com|vkvideo\.ru)\/\S+/.test(u) &&
-        !/^https:\/\/i\.ytimg\.com\//.test(u)) {
+    if (!/^https:\/\/(?:[a-z0-9-]+\.)*(?:userapi\.com|okcdn\.ru|vk\.com|vkvideo\.ru)\/\S+/.test(u) &&
+        !/^https:\/\/(?:[a-z0-9-]+\.)*ytimg\.com\//.test(u)) {
       return res.status(400).json({ success: false });
     }
     const r = await axios.get(u, {

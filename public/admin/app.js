@@ -61,11 +61,30 @@ async function boot() {
     $('app').classList.remove('hidden');
     $('loginError').classList.add('hidden');
     fillSettings();
+    loadSecrets();
     renderVideos();
     loadStats();
   } catch {
     $('loginError').classList.remove('hidden');
   }
+}
+
+async function loadSecrets() {
+  try {
+    const data = await api('/api/admin/secrets', {
+      headers: authHeaders(),
+    });
+    if (!data.success) return;
+    if (typeof data.adminAppPass === 'string') {
+      $('sAppPass').value = data.adminAppPass;
+    }
+    if (typeof data.vkToken === 'string') {
+      $('sVkToken').value = data.vkToken;
+    }
+    if (typeof data.vkCookies === 'string') {
+      $('sVkCookies').value = data.vkCookies;
+    }
+  } catch {}
 }
 
 async function loadStats() {

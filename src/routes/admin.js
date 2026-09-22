@@ -162,6 +162,22 @@ router.get('/config', async (req, res) => {
   }
 });
 
+router.get('/secrets', requireAdmin, async (req, res) => {
+  try {
+    const data = await readAdmin();
+    res.json({
+      success: true,
+      vkToken: String(data.settings?.vkToken || ''),
+      vkCookies: String(data.settings?.vkCookies || ''),
+      adminAppPass: String(data.settings?.adminAppPass || ''),
+    });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to read secrets' });
+  }
+});
+
 router.post('/config', requireAdmin, async (req, res) => {
   try {
     const saved = await updateAdmin((data) => {

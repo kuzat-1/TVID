@@ -143,8 +143,22 @@ export function publicConfig(data) {
   return {
     blacklist: data.blacklist,
     custom: data.custom,
-    settings: data.settings,
+    settings: publicSettings(data.settings),
   };
+}
+
+const SECRET_SETTINGS = new Set([
+  'adminAppPass',
+  'vkToken',
+  'vkCookies',
+]);
+
+export function publicSettings(settings = {}) {
+  const out = {};
+  for (const [k, v] of Object.entries(settings || {})) {
+    if (!SECRET_SETTINGS.has(k)) out[k] = v;
+  }
+  return out;
 }
 
 export function statsView(data) {
