@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { appendFileSync } from 'node:fs';
-import { readAdmin, writeAdmin } from '../lib/adminDb.js';
+import { readAdmin, updateAdmin } from '../lib/adminDb.js';
 import { resolveVkMeta } from '../services/vkParseService.js';
 
 const router = Router();
@@ -116,8 +116,6 @@ router.post('/quick-add', async (req, res) => {
       String(req.body?.url || ''),
       20000
     );
-    const data = await readAdmin();
-    const list = Array.isArray(data.catalog) ? data.catalog : [];
     const entry = {
       key: meta.key,
       title: meta.title,
@@ -133,12 +131,15 @@ router.post('/quick-add', async (req, res) => {
       sourceUrl: '',
       ok: true,
     };
-    const at = list.findIndex((c) => c.key === entry.key);
-    if (at >= 0) list[at] = { ...list[at], ...entry };
-    else list.unshift(entry);
-    data.catalog = list.slice(0, 2000);
-    await writeAdmin(data);
-    res.json({ success: true, item: entry, total: data.catalog.length });
+    const total = await updateAdmin((data) => {
+      const list = Array.isArray(data.catalog) ? data.catalog : [];
+      const at = list.findIndex((c) => c.key === entry.key);
+      if (at >= 0) list[at] = { ...list[at], ...entry };
+      else list.unshift(entry);
+      data.catalog = list.slice(0, 2000);
+      return data.catalog.length;
+    });
+    res.json({ success: true, item: entry, total });
   } catch (error) {
     res.status(422).json({
       success: false,
@@ -158,6 +159,7 @@ router.get('/trends', async (req, res) => {
     const items = (data.catalog || [])
       .filter((c) => !c.vertical)
       .slice(0, n);
+    res.set('Cache-Control', 'no-store');
     res.json({ success: true, items, total: items.length });
   } catch (error) {
     res
@@ -180,6 +182,7 @@ router.get('/reels', async (req, res) => {
       500
     );
     const items = verticals.slice(0, limit);
+    res.set('Cache-Control', 'no-store');
     res.json({ success: true, items, total: verticals.length });
   } catch (error) {
     res
@@ -274,6 +277,7 @@ router.get('/', async (req, res) => {
       } catch {}
     });
     const items = matched.slice(offset, offset + limit);
+    res.set('Cache-Control', 'no-store');
     res.json({ success: true, items, total: matched.length });
   } catch (error) {
     diag.catalogErrors++;
@@ -294,44 +298,45 @@ router.post('/resolve', requireAdmin, async (req, res) => {
 
 router.post('/', requireAdmin, async (req, res) => {
   try {
-    const data = await readAdmin();
     const item = req.body || {};
     if (!item.key || !/(-?\d+)_(\d+)/.test(String(item.key))) {
       return res
         .status(400)
         .json({ success: false, error: 'bad key' });
     }
-    const list = Array.isArray(data.catalog) ? data.catalog : [];
-    const idx = list.findIndex((c) => c.key === item.key);
-    const prev =
-      list.find((c) => c.key === String(item.key)) || {};
-    const entry = {
-      key: String(item.key),
-      title: String(item.title || prev.title || 'Без названия'),
-      thumb: String(item.thumb || prev.thumb || ''),
-      durationSec: Number(item.durationSec) || Number(prev.durationSec) || 0,
-      genre: String(
-        item.genre ||
-          prev.genre ||
-          detectGenre(
-            String(item.title || ''),
-            Number(item.durationSec) || Number(prev.durationSec) || 0
-          )
-      ),
-      vertical: item.vertical === true || prev.vertical === true,
-      addedAt: Number(item.addedAt) || Number(prev.addedAt) || Date.now(),
-      views: Number(item.views) || Number(prev.views) || 0,
-      direct: item.direct === true || prev.direct === true,
-      akey: String(item.akey || prev.akey || ''),
-      source: String(item.source || prev.source || ''),
-      sourceUrl: String(item.sourceUrl || prev.sourceUrl || ''),
-      ok: item.ok === false ? false : prev.ok !== false,
-    };
-    if (idx >= 0) list[idx] = entry;
-    else list.unshift(entry);
-    data.catalog = list.slice(0, 2000);
-    await writeAdmin(data);
-    res.json({ success: true, item: entry, total: data.catalog.length });
+    const total = await updateAdmin((data) => {
+      const list = Array.isArray(data.catalog) ? data.catalog : [];
+      const idx = list.findIndex((c) => c.key === item.key);
+      const prev =
+        list.find((c) => c.key === String(item.key)) || {};
+      const entry = {
+        key: String(item.key),
+        title: String(item.title || prev.title || 'Без названия'),
+        thumb: String(item.thumb || prev.thumb || ''),
+        durationSec: Number(item.durationSec) || Number(prev.durationSec) || 0,
+        genre: String(
+          item.genre ||
+            prev.genre ||
+            detectGenre(
+              String(item.title || ''),
+              Number(item.durationSec) || Number(prev.durationSec) || 0
+            )
+        ),
+        vertical: item.vertical === true || prev.vertical === true,
+        addedAt: Number(item.addedAt) || Number(prev.addedAt) || Date.now(),
+        views: Number(item.views) || Number(prev.views) || 0,
+        direct: item.direct === true || prev.direct === true,
+        akey: String(item.akey || prev.akey || ''),
+        source: String(item.source || prev.source || ''),
+        sourceUrl: String(item.sourceUrl || prev.sourceUrl || ''),
+        ok: item.ok === false ? false : prev.ok !== false,
+      };
+      if (idx >= 0) list[idx] = entry;
+      else list.unshift(entry);
+      data.catalog = list.slice(0, 2000);
+      return { total: data.catalog.length, entry };
+    });
+    res.json({ success: true, item: total.entry, total: total.total });
   } catch (error) {
     res
       .status(500)
@@ -341,12 +346,13 @@ router.post('/', requireAdmin, async (req, res) => {
 
 router.delete('/:key', requireAdmin, async (req, res) => {
   try {
-    const data = await readAdmin();
-    data.catalog = (data.catalog || []).filter(
-      (c) => c.key !== req.params.key
-    );
-    await writeAdmin(data);
-    res.json({ success: true, total: data.catalog.length });
+    const total = await updateAdmin((data) => {
+      data.catalog = (data.catalog || []).filter(
+        (c) => c.key !== req.params.key
+      );
+      return data.catalog.length;
+    });
+    res.json({ success: true, total });
   } catch (error) {
     res
       .status(500)

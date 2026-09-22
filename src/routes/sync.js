@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import axios from 'axios';
 import { execFile } from 'node:child_process';
-import { readAdmin, writeAdmin } from '../lib/adminDb.js';
+import { readAdmin, updateAdmin } from '../lib/adminDb.js';
+import { logSync } from '../lib/syncLog.js';
 import { resolveVkMeta, cookieArgs } from '../services/vkParseService.js';
 import { detectGenre } from './catalog.js';
 
@@ -377,37 +378,80 @@ router.post('/', requireAdmin, async (req, res) => {
     if (!sourceName) {
       sourceName = url.replace(/^https?:\/\//, '').slice(0, 80);
     }
+    const freshEntries = entries.filter(
+      (e) => e && typeof e.key === 'string' && e.key.includes('_')
+    );
+    if (!freshEntries.length) {
+      console.log(
+        `[sync] ${sourceName}: fetched=0 — keeping existing catalog untouched`
+      );
+      logSync({
+        source: sourceName,
+        existing: catalog.length,
+        fetched: 0,
+        added: 0,
+        updated: 0,
+        final: catalog.length,
+        ok: false,
+        note: 'empty fetch, catalog untouched',
+      });
+      return res.json({
+        success: true,
+        found: 0,
+        added: 0,
+        skipped: 0,
+        verticals: 0,
+        source: sourceName,
+        note: 'empty fetch, catalog untouched',
+      });
+    }
+    if (freshEntries.length < 3 && catalog.length > 50) {
+      console.log(
+        `[sync] ${sourceName}: suspiciously small fetch (${freshEntries.length}) vs existing ${catalog.length} — merging anyway, nothing removed`
+      );
+    }
     let added = 0;
     let skipped = 0;
-    for (const e of entries) {
+    for (const e of freshEntries) {
       if (known.has(e.key)) {
         skipped++;
-        continue;
       }
-      known.add(e.key);
-      catalog.unshift({
-        ...e,
-        source: sourceName,
-        sourceUrl: url,
-      });
-      added++;
     }
-    const verticals = entries.filter(
+    const verticals = freshEntries.filter(
       (e, i, arr) =>
         e.vertical && arr.findIndex((x) => x.key === e.key) === i
     ).length;
-    const fresh = await readAdmin();
-    const freshKnown = new Set(
-      (fresh.catalog || []).map((c) => c.key)
-    );
-    for (const c of catalog) {
-      if (!freshKnown.has(c.key)) {
-        fresh.catalog.unshift(c);
-        freshKnown.add(c.key);
+    const finalCount = await updateAdmin((fresh) => {
+      const list = Array.isArray(fresh.catalog) ? fresh.catalog : [];
+      const freshKnown = new Set(list.map((c) => c.key));
+      let n = 0;
+      for (const e of freshEntries) {
+        if (freshKnown.has(e.key)) continue;
+        freshKnown.add(e.key);
+        list.unshift({
+          ...e,
+          source: sourceName,
+          sourceUrl: url,
+        });
+        n++;
       }
-    }
-    fresh.catalog = (fresh.catalog || []).slice(0, 2000);
-    await writeAdmin(fresh);
+      fresh.catalog = list.slice(0, 2000);
+      return { final: fresh.catalog.length, added: n };
+    });
+    added = finalCount.added;
+    const finalTotal = finalCount.final;
+    console.log(
+      `[sync] ${sourceName}: existing=${catalog.length} fetched=${freshEntries.length} added=${added} skipped=${skipped} final=${finalTotal}`
+    );
+    logSync({
+      source: sourceName,
+      existing: catalog.length,
+      fetched: freshEntries.length,
+      added,
+      updated: 0,
+      final: finalTotal,
+      ok: true,
+    });
     res.json({
       success: true,
       found: entries.length,

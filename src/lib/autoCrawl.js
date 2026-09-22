@@ -1,4 +1,4 @@
-import { readAdmin, writeAdmin } from './adminDb.js';
+import { readAdmin, updateAdmin } from './adminDb.js';
 import { fetchWatch } from './crawlLayn.js';
 import { detectGenre } from '../routes/catalog.js';
 
@@ -23,9 +23,10 @@ function decode(s) {
 export async function crawlNew(maxPages = 60) {
   const data = await readAdmin();
   const known = new Set((data.catalog || []).map((c) => c.key));
+  const existing = (data.catalog || []).length;
   const seen = new Set();
+  const found = [];
   const queue = [...SEEDS];
-  let added = 0;
   while (queue.length && seen.size < maxPages) {
     const slug = queue.shift();
     if (!slug || seen.has(slug)) continue;
@@ -37,7 +38,7 @@ export async function crawlNew(maxPages = 60) {
         if (!known.has(key)) {
           known.add(key);
           const title = decode(page.title) || 'Без названия';
-          data.catalog.unshift({
+          found.push({
             key,
             title,
             thumb: page.thumb || '',
@@ -46,7 +47,6 @@ export async function crawlNew(maxPages = 60) {
             views: 0,
             addedAt: Date.now(),
           });
-          added++;
         }
       }
       for (const r of (page.related || []).slice(0, 10)) {
@@ -55,17 +55,29 @@ export async function crawlNew(maxPages = 60) {
     } catch {}
     await sleep(400);
   }
-  const fresh = await readAdmin();
-  const freshKnown = new Set((fresh.catalog || []).map((c) => c.key));
-  for (const c of data.catalog || []) {
-    if (!freshKnown.has(c.key)) {
-      fresh.catalog.unshift(c);
-      freshKnown.add(c.key);
-    }
+  if (!found.length) {
+    console.log(
+      `[autocrawl] existing=${existing} fetched=0 — catalog untouched`
+    );
+    return { added: 0, seen: seen.size };
   }
-  fresh.catalog = (fresh.catalog || []).slice(0, 2000);
-  await writeAdmin(fresh);
-  return { added, seen: seen.size };
+  const res = await updateAdmin((fresh) => {
+    const list = Array.isArray(fresh.catalog) ? fresh.catalog : [];
+    const freshKnown = new Set(list.map((c) => c.key));
+    let n = 0;
+    for (const c of found) {
+      if (freshKnown.has(c.key)) continue;
+      freshKnown.add(c.key);
+      list.unshift(c);
+      n++;
+    }
+    fresh.catalog = list.slice(0, 2000);
+    return { final: fresh.catalog.length, added: n };
+  });
+  console.log(
+    `[autocrawl] existing=${existing} fetched=${found.length} added=${res.added} final=${res.final}`
+  );
+  return { added: res.added, seen: seen.size };
 }
 
 export function startAutoCrawl() {

@@ -10,7 +10,7 @@ RUN npm ci --only=production
 
 COPY . .
 
-RUN mkdir -p logs
+RUN mkdir -p data logs
 
 EXPOSE 3000
 

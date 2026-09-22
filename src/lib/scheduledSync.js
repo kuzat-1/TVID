@@ -1,4 +1,4 @@
-import { readAdmin, writeAdmin } from './adminDb.js';
+import { readAdmin, updateAdmin } from './adminDb.js';
 
 const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
 const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
@@ -16,7 +16,7 @@ async function refreshStaleThumbs() {
       (c) => !c.thumbTs || now - c.thumbTs > FOURTEEN_DAYS_MS
     ).slice(0, 200);
     if (!stale.length) return;
-    let upd = 0;
+    const updates = new Map();
     for (const c of stale) {
       try {
         const url =
@@ -30,15 +30,25 @@ async function refreshStaleThumbs() {
           ? it.first_frame
           : [];
         if (frames.length && frames[frames.length - 1].url) {
-          c.thumb = String(frames[frames.length - 1].url);
-          c.thumbTs = Date.now();
-          upd++;
+          updates.set(c.key, String(frames[frames.length - 1].url));
         }
       } catch {}
       await new Promise((r) => setTimeout(r, 300));
     }
-    await writeAdmin(data);
-    console.log(`[thumb-refresh] updated=${upd} checked=${stale.length}`);
+    if (!updates.size) return;
+    const res = await updateAdmin((fresh) => {
+      let n = 0;
+      for (const c of fresh.catalog || []) {
+        const t = updates.get(c.key);
+        if (t) {
+          c.thumb = t;
+          c.thumbTs = Date.now();
+          n++;
+        }
+      }
+      return n;
+    });
+    console.log(`[thumb-refresh] updated=${res} checked=${stale.length}`);
   } catch (error) {
     console.error('[thumb-refresh] failed:', error.message || error);
   }

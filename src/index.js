@@ -17,6 +17,7 @@ import { startScheduledSync } from './lib/scheduledSync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.BACKEND_PORT || 3000;
 
 app.use(cors());
@@ -64,6 +65,35 @@ app.get(['/privacy', '/dmca'], (req, res) => {
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/diag', async (req, res) => {
+  try {
+    const { readAdmin, dataFileInfo } = await import(
+      './lib/adminDb.js'
+    );
+    const { lastSyncs } = await import('./lib/syncLog.js');
+    const { getCacheInfo } = await import(
+      './services/vkParseService.js'
+    );
+    const data = await readAdmin();
+    const catalog = Array.isArray(data.catalog) ? data.catalog : [];
+    const file = await dataFileInfo();
+    res.json({
+      success: true,
+      catalogTotal: catalog.length,
+      horizontal: catalog.filter((c) => !c.vertical).length,
+      vertical: catalog.filter((c) => c.vertical).length,
+      fileExists: file.exists,
+      fileSize: file.size,
+      fileMtime: file.mtime,
+      uptimeSec: Math.round(process.uptime()),
+      streamCache: getCacheInfo(),
+      lastSyncs: lastSyncs(),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'diag failed' });
+  }
 });
 
 const EXTRA_PORTS = [8080, 8000];

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import {
   readAdmin,
-  writeAdmin,
+  updateAdmin,
   publicConfig,
   statsView,
 } from '../lib/adminDb.js';
@@ -31,41 +31,44 @@ function pruneFails(fails) {
 }
 
 async function checkBlocked(req, res) {
-  const data = await readAdmin();
-  pruneFails(data.authFails);
-  const rec = data.authFails[clientIp(req)];
-  if (rec && rec.count >= MAX_FAILS) {
-    const retryAfter = Math.max(
-      0,
-      Math.ceil((rec.blockedUntil - Date.now()) / 1000)
-    );
-    if (Date.now() < rec.blockedUntil) {
-      await writeAdmin(data);
-      res.status(403).json({
-        success: false,
-        error: 'blocked',
-        retryAfter,
-      });
-      return true;
+  const blocked = await updateAdmin((data) => {
+    pruneFails(data.authFails);
+    const rec = data.authFails[clientIp(req)];
+    if (rec && rec.count >= MAX_FAILS) {
+      const retryAfter = Math.max(
+        0,
+        Math.ceil((rec.blockedUntil - Date.now()) / 1000)
+      );
+      if (Date.now() < rec.blockedUntil) {
+        return { blocked: true, retryAfter };
+      }
     }
+    return { blocked: false, retryAfter: 0 };
+  });
+  if (blocked.blocked) {
+    res.status(403).json({
+      success: false,
+      error: 'blocked',
+      retryAfter: blocked.retryAfter,
+    });
+    return true;
   }
-  await writeAdmin(data);
   return false;
 }
 
 async function registerFail(req) {
   try {
-    const data = await readAdmin();
-    pruneFails(data.authFails);
-    const ip = clientIp(req);
-    const rec = data.authFails[ip] || { count: 0, firstFail: Date.now() };
-    rec.count += 1;
-    if (rec.count >= MAX_FAILS) {
-      rec.blockedUntil = Date.now() + BLOCK_MS;
-    }
-    data.authFails[ip] = rec;
-    await writeAdmin(data);
-    return rec;
+    return await updateAdmin((data) => {
+      pruneFails(data.authFails);
+      const ip = clientIp(req);
+      const rec = data.authFails[ip] || { count: 0, firstFail: Date.now() };
+      rec.count += 1;
+      if (rec.count >= MAX_FAILS) {
+        rec.blockedUntil = Date.now() + BLOCK_MS;
+      }
+      data.authFails[ip] = rec;
+      return rec;
+    });
   } catch {
     return { count: 0 };
   }
@@ -73,9 +76,9 @@ async function registerFail(req) {
 
 async function clearFails(req) {
   try {
-    const data = await readAdmin();
-    delete data.authFails[clientIp(req)];
-    await writeAdmin(data);
+    await updateAdmin((data) => {
+      delete data.authFails[clientIp(req)];
+    });
   } catch {}
 }
 
@@ -161,7 +164,7 @@ router.get('/config', async (req, res) => {
 
 router.post('/config', requireAdmin, async (req, res) => {
   try {
-    const data = await readAdmin();
+    const saved = await updateAdmin((data) => {
     const { blacklist, custom, settings } = req.body || {};
     if (Array.isArray(blacklist)) {
       data.blacklist = blacklist.map(String);
@@ -201,8 +204,14 @@ router.post('/config', requireAdmin, async (req, res) => {
         }
       }
     }
-    if (data.settings.cacheTtlHours !== undefined) {
-      setCacheTtlHours(data.settings.cacheTtlHours);
+      return {
+        cacheTtlHours: data.settings.cacheTtlHours,
+        vkCookies: String(data.settings.vkCookies || ''),
+        snapshot: publicConfig(data),
+      };
+    });
+    if (saved.cacheTtlHours !== undefined) {
+      setCacheTtlHours(saved.cacheTtlHours);
     }
     try {
       const { COOKIE_FILE } = await import(
@@ -211,15 +220,14 @@ router.post('/config', requireAdmin, async (req, res) => {
       const { promises: fsp } = await import('node:fs');
       const { dirname } = await import('node:path');
       await fsp.mkdir(dirname(COOKIE_FILE), { recursive: true });
-      const ck = String(data.settings.vkCookies || '').trim();
+      const ck = saved.vkCookies.trim();
       if (ck) {
         await fsp.writeFile(COOKIE_FILE, ck, { mode: 0o600 });
       } else {
         await fsp.rm(COOKIE_FILE, { force: true });
       }
     } catch {}
-    await writeAdmin(data);
-    res.json({ success: true, ...publicConfig(data) });
+    res.json({ success: true, ...saved.snapshot });
   } catch (error) {
     res
       .status(500)
@@ -229,19 +237,19 @@ router.post('/config', requireAdmin, async (req, res) => {
 
 router.post('/ads/report', async (req, res) => {
   try {
-    const data = await readAdmin();
-    const reports = Array.isArray(data.adReports) ? data.adReports : [];
-    reports.unshift({
-      ts: new Date().toISOString(),
-      reason: String(req.body?.reason || 'report').slice(0, 200),
-      ip:
-        req.headers['cf-connecting-ip'] ||
-        req.headers['x-forwarded-for']?.toString().split(',')[0].trim() ||
-        req.ip ||
-        'unknown',
+    await updateAdmin((data) => {
+      const reports = Array.isArray(data.adReports) ? data.adReports : [];
+      reports.unshift({
+        ts: new Date().toISOString(),
+        reason: String(req.body?.reason || 'report').slice(0, 200),
+        ip:
+          req.headers['cf-connecting-ip'] ||
+          req.headers['x-forwarded-for']?.toString().split(',')[0].trim() ||
+          req.ip ||
+          'unknown',
+      });
+      data.adReports = reports.slice(0, 200);
     });
-    data.adReports = reports.slice(0, 200);
-    await writeAdmin(data);
     res.json({ success: true });
   } catch (error) {
     res
@@ -271,10 +279,11 @@ router.get('/stats', async (req, res) => {
 
 router.post('/stats/view', async (req, res) => {
   try {
-    const data = await readAdmin();
-    data.stats = statsView(data);
-    await writeAdmin(data);
-    res.json({ success: true, views: data.stats.views });
+    const views = await updateAdmin((data) => {
+      data.stats = statsView(data);
+      return data.stats.views;
+    });
+    res.json({ success: true, views });
   } catch (error) {
     res
       .status(500)

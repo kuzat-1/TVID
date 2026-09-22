@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { readAdmin, writeAdmin } from '../lib/adminDb.js';
+import { readAdmin, updateAdmin } from '../lib/adminDb.js';
 import { resolveVkMeta } from '../services/vkParseService.js';
 import { detectGenre } from './catalog.js';
 
@@ -43,21 +43,20 @@ router.post('/', async (req, res) => {
         .json({ success: false, error: 'limit: 5 per day' });
     }
     suggestHits.set(k, n);
-    const data = await readAdmin();
-    const list = Array.isArray(data.suggestions)
-      ? data.suggestions
-      : [];
-    if (list.some((s) => s.url === url)) {
-      return res.json({ success: true, duplicate: true });
-    }
-    list.unshift({
-      url,
-      ip,
-      ts: new Date().toISOString(),
+    const res2 = await updateAdmin((data) => {
+      const list = Array.isArray(data.suggestions)
+        ? data.suggestions
+        : [];
+      if (list.some((s) => s.url === url)) return { duplicate: true };
+      list.unshift({
+        url,
+        ip,
+        ts: new Date().toISOString(),
+      });
+      data.suggestions = list.slice(0, 200);
+      return { duplicate: false };
     });
-    data.suggestions = list.slice(0, 200);
-    await writeAdmin(data);
-    res.json({ success: true });
+    res.json({ success: true, duplicate: res2.duplicate });
   } catch (error) {
     res.status(500).json({ success: false, error: 'failed' });
   }
@@ -111,21 +110,21 @@ router.post('/:idx/approve', requireAdmin, async (req, res) => {
       addedAt: Date.now(),
       ok: true,
     };
-    const fresh = await readAdmin();
-    fresh.catalog = Array.isArray(fresh.catalog) ? fresh.catalog : [];
-    const at = fresh.catalog.findIndex((c) => c.key === entry.key);
-    if (at >= 0) fresh.catalog[at] = entry;
-    else fresh.catalog.unshift(entry);
-    fresh.catalog = fresh.catalog.slice(0, 2000);
-    const freshSugg = Array.isArray(fresh.suggestions)
-      ? fresh.suggestions
-      : [];
-    const sAt = freshSugg.findIndex((s) => s.url === item.url);
-    fresh.suggestions =
-      sAt >= 0
-        ? freshSugg.filter((_, i) => i !== sAt)
-        : freshSugg.filter((_, i) => i !== idx);
-    await writeAdmin(fresh);
+    await updateAdmin((fresh) => {
+      fresh.catalog = Array.isArray(fresh.catalog) ? fresh.catalog : [];
+      const at = fresh.catalog.findIndex((c) => c.key === entry.key);
+      if (at >= 0) fresh.catalog[at] = entry;
+      else fresh.catalog.unshift(entry);
+      fresh.catalog = fresh.catalog.slice(0, 2000);
+      const freshSugg = Array.isArray(fresh.suggestions)
+        ? fresh.suggestions
+        : [];
+      const sAt = freshSugg.findIndex((s) => s.url === item.url);
+      fresh.suggestions =
+        sAt >= 0
+          ? freshSugg.filter((_, i) => i !== sAt)
+          : freshSugg.filter((_, i) => i !== idx);
+    });
     res.json({ success: true, item: entry });
   } catch (error) {
     res.status(422).json({ success: false, error: 'unresolvable' });
@@ -134,13 +133,13 @@ router.post('/:idx/approve', requireAdmin, async (req, res) => {
 
 router.delete('/:idx', requireAdmin, async (req, res) => {
   try {
-    const data = await readAdmin();
-    const list = Array.isArray(data.suggestions)
-      ? data.suggestions
-      : [];
     const idx = Number(req.params.idx);
-    data.suggestions = list.filter((_, i) => i !== idx);
-    await writeAdmin(data);
+    await updateAdmin((data) => {
+      const list = Array.isArray(data.suggestions)
+        ? data.suggestions
+        : [];
+      data.suggestions = list.filter((_, i) => i !== idx);
+    });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, error: 'failed' });

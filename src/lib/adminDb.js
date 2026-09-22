@@ -103,6 +103,55 @@ export async function writeAdmin(data) {
   await task;
 }
 
+let adminChain = Promise.resolve();
+
+export async function updateAdmin(mutator) {
+  let result;
+  const task = adminChain.then(async () => {
+    await ensureFile();
+    const text = await fs.readFile(DATA_FILE, 'utf8');
+    const raw = JSON.parse(text);
+    const data = {
+      blacklist: Array.isArray(raw.blacklist) ? raw.blacklist : [],
+      custom:
+        raw.custom && typeof raw.custom === 'object' ? raw.custom : {},
+      settings: { ...DEFAULTS.settings, ...(raw.settings || {}) },
+      stats: {
+        views: Number(raw.stats?.views) || 0,
+        viewsByDay:
+          raw.stats?.viewsByDay && typeof raw.stats.viewsByDay === 'object'
+            ? raw.stats.viewsByDay
+            : {},
+      },
+      authFails:
+        raw.authFails && typeof raw.authFails === 'object'
+          ? raw.authFails
+          : {},
+      adReports: Array.isArray(raw.adReports) ? raw.adReports : [],
+      catalog: Array.isArray(raw.catalog) ? raw.catalog : [],
+      suggestions: Array.isArray(raw.suggestions)
+        ? raw.suggestions
+        : [],
+    };
+    result = await mutator(data);
+    const tmp = `${DATA_FILE}.tmp.${process.pid}`;
+    await fs.writeFile(tmp, JSON.stringify(data, null, 2));
+    await fs.rename(tmp, DATA_FILE);
+  });
+  adminChain = task.catch(() => {});
+  await task;
+  return result;
+}
+
+export async function dataFileInfo() {
+  try {
+    const st = await fs.stat(DATA_FILE);
+    return { exists: true, size: st.size, mtime: st.mtime.toISOString() };
+  } catch {
+    return { exists: false, size: 0, mtime: null };
+  }
+}
+
 export function publicConfig(data) {
   return {
     blacklist: data.blacklist,
