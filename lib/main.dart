@@ -1425,6 +1425,8 @@ class _MainScreenState extends State<MainScreen>
   bool _logoLongFired = false;
   final Map<int, InAppWebViewController> _webControllers = {};
   final Map<int, bool> _paused = {};
+  final Map<int, bool> _webLoaded = {};
+  final Map<int, int> _webCreatedAt = {};
   bool _inviteBannerDismissed = false;
   bool _isReelsLoading = false;
 
@@ -2177,6 +2179,7 @@ class _MainScreenState extends State<MainScreen>
       vi = 0;
     }
     final int videoIdx = vi;
+    final int tapMs = DateTime.now().millisecondsSinceEpoch;
     setState(() {
       _shortsFeed = List.of(pool);
       _selectedIndex = 1;
@@ -2185,6 +2188,9 @@ class _MainScreenState extends State<MainScreen>
           : videoIdx;
       _currentShort = pos;
       _paused[pos] = false;
+      _webLoaded.clear();
+      _webCreatedAt.clear();
+      _webCreatedAt[pos] = tapMs;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_shortsPageController.hasClients) {
@@ -2414,6 +2420,8 @@ class _MainScreenState extends State<MainScreen>
           if (rebuildReels) {
             _shortsFeed = _rankSimilar(_reelsPool(), _lastWatched);
             _currentShort = 0;
+            _webLoaded.clear();
+            _webCreatedAt.clear();
           }
           _selectedIndex = index;
         });
@@ -3412,6 +3420,15 @@ class _MainScreenState extends State<MainScreen>
       color: Colors.black,
       child: Stack(
         children: [
+          if (!(_webLoaded[index] ?? false))
+            Positioned.fill(
+              child: Image.network(
+                v.thumb,
+                fit: BoxFit.cover,
+                errorBuilder: (ctx, err, stack) =>
+                    Container(color: Colors.black),
+              ),
+            ),
           Positioned.fill(
             child: SafeArea(
               top: false,
@@ -3444,6 +3461,8 @@ class _MainScreenState extends State<MainScreen>
               ),
               onWebViewCreated: (controller) {
                 _webControllers[index] = controller;
+                _webCreatedAt[index] =
+                    DateTime.now().millisecondsSinceEpoch;
               },
               onConsoleMessage: (controller, consoleMessage) {
                 if (consoleMessage.message
@@ -3497,9 +3516,20 @@ class _MainScreenState extends State<MainScreen>
                 if (index != _currentShort || (_paused[index] ?? false)) {
                   return;
                 }
+                final int createdAt = _webCreatedAt[index] ?? 0;
+                if (createdAt > 0) {
+                  debugPrint(
+                      'webview[$index] page ms=${DateTime.now().millisecondsSinceEpoch - createdAt}');
+                }
+                _webLoaded[index] = true;
+                if (mounted) setState(() {});
                 for (int attempt = 0; attempt < 3; attempt++) {
-                  await Future.delayed(
-                      Duration(milliseconds: attempt == 0 ? 500 : 1500));
+                  await Future.delayed(Duration(
+                      milliseconds: attempt == 0
+                          ? 300
+                          : attempt == 1
+                              ? 800
+                              : 1500));
                   if (!mounted ||
                       index != _currentShort ||
                       (_paused[index] ?? false)) {
