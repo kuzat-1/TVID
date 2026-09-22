@@ -3782,7 +3782,7 @@ class _MainScreenState extends State<MainScreen>
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'TANHO v$appVersion (35)',
+                                'TANHO v$appVersion (36)',
                                 style: const TextStyle(
                                     fontSize: 11, color: textMuted),
                               ),
