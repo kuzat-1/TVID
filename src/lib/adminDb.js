@@ -52,7 +52,7 @@ async function ensureFile() {
   }
 }
 
-let writeChain = Promise.resolve();
+let adminChain = Promise.resolve();
 
 export async function readAdmin(retries = 4) {
   await ensureFile();
@@ -91,19 +91,6 @@ export async function readAdmin(retries = 4) {
   }
   throw lastError || new Error('read failed');
 }
-
-export async function writeAdmin(data) {
-  await ensureFile();
-  const task = writeChain.then(async () => {
-    const tmp = `${DATA_FILE}.tmp.${process.pid}`;
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2));
-    await fs.rename(tmp, DATA_FILE);
-  });
-  writeChain = task.catch(() => {});
-  await task;
-}
-
-let adminChain = Promise.resolve();
 
 export async function updateAdmin(mutator) {
   let result;
