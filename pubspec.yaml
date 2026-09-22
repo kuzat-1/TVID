@@ -2,7 +2,7 @@ name: stream_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.3.4+34
+version: 1.3.5+35
 
 environment:
   sdk: ^3.5.0

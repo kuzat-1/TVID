@@ -16,11 +16,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 
 bool firebaseReady = false;
-const String appVersion = '1.3.4';
+const String appVersion = '1.3.5';
 const String storeUrl =
     'https://play.google.com/store/apps/details?id=su.layn.app';
 const String adminApiBase = 'https://kuzat.ru';
-const String directApiBase = 'http://193.222.97.180:3000';
 final AdminStore adminStore = AdminStore();
 
 Future<void> main() async {
@@ -364,26 +363,21 @@ class VideoItem {
 }
 
 Future<http.Response> _getWithFallback(Uri primary, Duration timeout) async {
-  try {
-    final http.Response resp =
-        await http.get(primary).timeout(timeout);
-    if (resp.statusCode == 200) return resp;
-  } catch (_) {}
-  final String fallback = primary.toString().replaceFirst(
-      adminApiBase, directApiBase);
-  if (fallback != primary.toString()) {
+  Object? lastError;
+  for (int attempt = 0; attempt < 3; attempt++) {
     try {
       final http.Response resp =
-          await http.get(Uri.parse(fallback)).timeout(timeout);
+          await http.get(primary).timeout(timeout);
       if (resp.statusCode == 200) return resp;
-    } catch (_) {}
+      lastError = Exception('HTTP ${resp.statusCode}');
+    } catch (e) {
+      lastError = e;
+    }
+    if (attempt < 2) {
+      await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+    }
   }
-  try {
-    final http.Response resp =
-        await http.get(primary).timeout(timeout);
-    if (resp.statusCode == 200) return resp;
-  } catch (_) {}
-  throw Exception('network failed');
+  throw lastError ?? Exception('network failed');
 }
 
 String vkDirectHtml(String streamUrl, bool autoplay) {
@@ -3781,7 +3775,7 @@ class _MainScreenState extends State<MainScreen>
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'TANHO v$appVersion (34)',
+                                'TANHO v$appVersion (35)',
                                 style: const TextStyle(
                                     fontSize: 11, color: textMuted),
                               ),
