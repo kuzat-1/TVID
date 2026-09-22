@@ -49,7 +49,7 @@ const server = http.createServer((req, res) => {
   </style>
 </head>
 <body>
-  <h1>📦 TANHO Build Files v1.3.4+34</h1>
+  <h1>📦 TANHO Build Files v1.3.5+35</h1>
   <p>Click to download. Files are signed release builds.</p>
   ${files.map(f => `
     <div class="file">

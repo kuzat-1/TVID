@@ -20,6 +20,13 @@ const String appVersion = '1.3.5';
 const String storeUrl =
     'https://play.google.com/store/apps/details?id=su.layn.app';
 const String adminApiBase = 'https://kuzat.ru';
+
+String thumbProxy(String url) {
+  final String u = url.trim();
+  if (u.isEmpty) return u;
+  if (u.startsWith('$adminApiBase/api/thumb')) return u;
+  return '$adminApiBase/api/thumb?url=${Uri.encodeComponent(u)}';
+}
 final AdminStore adminStore = AdminStore();
 
 Future<void> main() async {
@@ -3045,7 +3052,7 @@ class _MainScreenState extends State<MainScreen>
                     fit: StackFit.expand,
                     children: [
                       Image.network(
-                        v.thumb,
+                        thumbProxy(v.thumb),
                         fit: BoxFit.cover,
                         loadingBuilder: (ctx, child, progress) {
                           if (progress == null) {
@@ -3417,7 +3424,7 @@ class _MainScreenState extends State<MainScreen>
           if (!(_webLoaded[index] ?? false))
             Positioned.fill(
               child: Image.network(
-                v.thumb,
+                thumbProxy(v.thumb),
                 fit: BoxFit.cover,
                 errorBuilder: (ctx, err, stack) =>
                     Container(color: Colors.black),
@@ -4023,7 +4030,7 @@ class _MainScreenState extends State<MainScreen>
                                   borderRadius:
                                       BorderRadius.circular(10),
                                   child: Image.network(
-                                    hv.thumb,
+                                    thumbProxy(hv.thumb),
                                     width: 96,
                                     height: 54,
                                     fit: BoxFit.cover,
@@ -4250,11 +4257,42 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     super.dispose();
   }
 
-  void _try() {
-    if (_passCtrl.text.trim() == adminStore.adminPass) {
+  bool _busy = false;
+
+  void _try() async {
+    final String pass = _passCtrl.text.trim();
+    if (pass.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    bool ok = pass == adminStore.adminPass;
+    if (!ok) {
+      try {
+        final http.Response resp = await http
+            .post(
+              Uri.parse('$adminApiBase/api/admin/login'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'token': pass}),
+            )
+            .timeout(const Duration(seconds: 10));
+        final dynamic data = jsonDecode(resp.body);
+        ok = resp.statusCode == 200 &&
+            data is Map &&
+            data['success'] == true;
+      } catch (_) {
+        ok = false;
+      }
+    }
+    if (!mounted) return;
+    if (ok) {
+      adminStore.adminPass = pass;
       widget.onSuccess();
     } else {
-      setState(() => _error = 'Неверный пароль');
+      setState(() {
+        _busy = false;
+        _error = 'Неверный пароль';
+      });
     }
   }
 
@@ -4296,7 +4334,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
             ],
             const SizedBox(height: 16),
             GestureDetector(
-              onTap: _try,
+              onTap: _busy ? null : _try,
               child: Container(
                 width: double.infinity,
                 padding:
@@ -4307,14 +4345,23 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                   ),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Center(
-                  child: Text(
-                    'Войти',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white),
-                  ),
+                child: Center(
+                  child: _busy
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text(
+                          'Войти',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white),
+                        ),
                 ),
               ),
             ),
@@ -4402,8 +4449,23 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         ? _versionCtrl.text.trim()
         : adminStore.latestVersion;
     adminStore.forceUpdate = _forceOn;
-    if (_newPassCtrl.text.trim().length >= 4) {
-      adminStore.adminPass = _newPassCtrl.text.trim();
+    final String newPass = _newPassCtrl.text.trim();
+    if (newPass.length >= 4) {
+      try {
+        await http
+            .post(
+              Uri.parse('$adminApiBase/api/admin/config'),
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: jsonEncode({
+                'token': adminStore.adminPass,
+                'settings': {'adminAppPass': newPass}
+              }),
+            )
+            .timeout(const Duration(seconds: 10));
+      } catch (_) {}
+      adminStore.adminPass = newPass;
       _newPassCtrl.clear();
     }
     adminStore.playerAdMode = _playerMode;
@@ -4794,7 +4856,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Image.network(
-                  v.thumb,
+                  thumbProxy(v.thumb),
                   width: 88,
                   height: 50,
                   fit: BoxFit.cover,
