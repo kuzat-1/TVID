@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TANHO Admin — app.kuzat.ru</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="login" class="center">
+  <div class="card login-card">
+    <div class="logo">T</div>
+    <h1>TANHO Admin</h1>
+    <p class="muted">Панель управления приложением</p>
+    <input id="token" type="password" placeholder="Токен администратора" autocomplete="current-password">
+    <p id="loginError" class="error hidden">Неверный токен</p>
+    <button id="loginBtn">Войти</button>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <button id="burger">☰</button>
+    <span class="title">TANHO Admin</span>
+    <button id="logoutBtn" class="ghost">Выйти</button>
+  </header>
+  <aside id="drawer">
+    <button data-tab="dash" class="active">📊 Дашборд</button>
+    <button data-tab="videos">🎥 Все видео</button>
+    <button data-tab="settings">⚙️ Настройки</button>
+  </aside>
+  <main>
+    <section id="tab-dash">
+      <div class="metrics">
+        <div class="metric"><div class="emoji">👤</div><div><div class="label">Просмотров всего</div><div class="value" id="mViews">—</div></div></div>
+        <div class="metric"><div class="emoji">📅</div><div><div class="label">Просмотров сегодня</div><div class="value" id="mToday">—</div></div></div>
+        <div class="metric"><div class="emoji">🚫</div><div><div class="label">Заблокировано / кастом</div><div class="value" id="mBlocked">—</div></div></div>
+        <div class="metric"><div class="emoji">⚠️</div><div><div class="label">Жалоб на рекламу</div><div class="value" id="mReports">—</div></div></div>
+      </div>
+      <button id="refreshStats">Обновить</button>
+    </section>
+    <section id="tab-videos" class="hidden">
+      <input id="search" placeholder="Поиск по названию или ID...">
+      <div class="addbox">
+        <h3>Добавить вручную</h3>
+        <input id="fKey" placeholder="Ключ owner_id_id (напр. -220630877_456239001)">
+        <input id="fTitle" placeholder="Название (необязательно)">
+        <input id="fThumb" placeholder="URL обложки (необязательно)">
+        <div class="row">
+          <button id="addBlock">В blacklist</button>
+          <button id="addCustom" class="ghost">Сохранить данные</button>
+        </div>
+      </div>
+      <div id="videoList"></div>
+      <div class="addbox">
+        <h3>Предложка от пользователей</h3>
+        <div id="suggestList"></div>
+      </div>
+      <div class="addbox">
+        <h3>Источники (плейлисты / каналы)</h3>
+        <div id="sourceChips" class="chips"></div>
+        <div id="sourceBar" class="hidden">
+          <h3 id="sourceTitle"></h3>
+          <p class="muted" id="sourceStats"></p>
+          <div class="row">
+            <button id="sourceSyncBtn">Синхронизировать</button>
+          </div>
+          <div id="sourceVideos"></div>
+        </div>
+      </div>
+      <div class="addbox">
+        <h3>Синхронизация плейлиста / канала</h3>
+        <input id="syncLink" placeholder="Ссылка: плейлист, канал или видео VK">
+        <div class="row">
+          <button id="syncBtn">Синхронизировать</button>
+        </div>
+        <p class="muted" id="syncMsg">Новое подтянется само, повторы пропускаются.</p>
+      </div>
+      <div class="addbox">
+        <h3>Каталог (без токенов)</h3>
+        <input id="cLink" placeholder="Ссылка VK или ключ owner_id_id">
+        <div class="row">
+          <button id="addCatalog">Распознать и добавить</button>
+        </div>
+        <p class="muted">Видео из каталога раздаются приложению даже без VK API.</p>
+        <div id="catalogList"></div>
+      </div>
+    </section>
+    <section id="tab-settings" class="hidden">
+      <label class="switch"><input type="checkbox" id="sYandex"> Включить рекламу Яндекса</label>
+      <label>Реклама в ленте каждые N карточек<input type="number" id="sFeedEvery" min="1" max="50"></label>
+      <label>Реклама в Reels каждые N свайпов<input type="number" id="sReelsEvery" min="1" max="50"></label>
+      <label>Yandex Block ID (лента)<input type="text" id="sFeedBlock"></label>
+      <label>Yandex Block ID (Reels)<input type="text" id="sReelsBlock"></label>
+      <label>Актуальная версия<input type="text" id="sVersion"></label>
+      <label class="switch"><input type="checkbox" id="sForce"> Force Update</label>
+      <label>Пароль админки в приложении<input type="text" id="sAppPass"></label>
+      <label>VK Service Token (без привязки к IP)<input type="text" id="sVkToken" placeholder="Оставь пустым — используется встроенный"></label>
+      <label>VK Cookies (для клипов каналов — формат cookies.txt)
+        <textarea id="sVkCookies" rows="3" placeholder="Вставь содержимое cookies.txt из браузера"></textarea>
+        <div class="row" style="margin-top:6px;">
+          <label class="ghost" style="cursor:pointer;display:flex;align-items:center;gap:8px;">
+            <input type="file" id="sVkCookiesFile" accept=".txt" style="display:none;" onchange="pickCookiesFile(this)">
+            <span>Выбрать файл cookies.txt</span>
+          </label>
+        </div>
+      </label>
+      <label>VK App ID для входа пользователей<input type="text" id="sVkAppId" placeholder="ID приложения VK"></label>
+      <label>Реклама в плеере</label>
+      <div class="row">
+        <button id="pModeOff" class="ghost">Выкл</button>
+        <button id="pModeHtml" class="ghost">HTML</button>
+        <button id="pModeYandex" class="ghost">Yandex</button>
+      </div>
+      <label>Показывать в плеере каждый N-й ролик<input type="number" id="sPlayerEvery" min="1" max="20"></label>
+
+      <div class="addbox">
+        <h3>Кэш видео</h3>
+        <p class="muted">Ссылок в кэше: <b id="cacheSize">—</b> • TTL: <b id="cacheTtl">—</b> ч</p>
+        <label>Время жизни кэша (часов, 1–72)<input type="number" id="sCacheTtl" min="1" max="72"></label>
+        <label>Режим получения видео</label>
+        <div class="row">
+          <button id="modeParser" class="ghost">Парсер m.vk.com</button>
+          <button id="modeVkapi" class="ghost">VK API Service Token</button>
+        </div>
+        <button id="clearCache" class="danger">Сбросить кэш видео</button>
+      </div>
+      <label>Своя HTML-реклама: где показывать (можно несколько)</label>
+      <div class="row">
+        <button id="hPlayer" class="ghost">Плеер</button>
+        <button id="hOpen" class="ghost">Открытие</button>
+        <button id="hFeed" class="ghost">Лента</button>
+        <button id="hReels" class="ghost">Reels</button>
+      </div>
+      <label>HTML-код своей рекламы<textarea id="sCustomHtml" rows="6" placeholder="&lt;div&gt;...&lt;/div&gt;"></textarea></label>
+      <button id="saveSettings">Сохранить</button>
+      <p id="saveMsg" class="muted"></p>
+    </section>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
